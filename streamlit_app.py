@@ -100,6 +100,11 @@ if st.button("Predict"):
     )
     
     st.write("Prediction:", response.json())
+    
+    result = response.json()
+
+    st.write(result)
+
     if "credit_score" in result:
         st.success(f"Credit Score: {result['credit_score']}")
         st.write(f"Risk Band: {result['risk_band']}")
