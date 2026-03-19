@@ -98,9 +98,9 @@ if st.button("Predict"):
         "https://credit-score-api-fy83.onrender.com/predict",
         json=data
     )
-    
-    st.write("Prediction:", response.json())
-    
+    #     st.write("Prediction:", response.json())
+    st.write("Status Code:", response.status_code)
+    st.write("Raw Response:", response.text)    
     result = response.json()
 
     st.write(result)
