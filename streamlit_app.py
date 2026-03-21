@@ -1,5 +1,8 @@
+%%writefile streamlit_app.py
 import streamlit as st
 import requests
+import time
+
 
 st.title("Credit Score Predictor")
 
@@ -94,20 +97,41 @@ if st.button("Predict"):
         "term": term
     }
     
+    time.sleep(1)
     response = requests.post(
         "https://credit-score-api-fy83.onrender.com/predict",
         json=data
     )
-    #     st.write("Prediction:", response.json())
+    
+#     st.write("Prediction:", response.json())
     st.write("Status Code:", response.status_code)
-    st.write("Raw Response:", response.text)    
-    result = response.json()
+    
+    if response.status_code == 200:
+    try:
+        result = response.json()
+        st.write(result)
 
-    st.write(result)
+        if "credit_score" in result:
+            st.success(f"Credit Score: {result['credit_score']}")
+            st.write(f"Risk Band: {result['risk_band']}")
+            st.write(f"PD: {round(result['pd'],3)}")
+        else:
+            st.error("API response format incorrect")
 
-    if "credit_score" in result:
-        st.success(f"Credit Score: {result['credit_score']}")
-        st.write(f"Risk Band: {result['risk_band']}")
-        st.write(f"PD: {round(result['pd'],3)}")
-    else:
-        st.error("API response format incorrect")
+    except:
+        st.error("Response is not valid JSON")
+        st.write(response.text)
+
+    
+#     st.write("Raw Response:", response.text)
+    
+#     result = response.json()
+
+#     st.write(result)
+
+#     if "credit_score" in result:
+#         st.success(f"Credit Score: {result['credit_score']}")
+#         st.write(f"Risk Band: {result['risk_band']}")
+#         st.write(f"PD: {round(result['pd'],3)}")
+#     else:
+#         st.error("API response format incorrect")
