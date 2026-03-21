@@ -2,7 +2,100 @@
 import streamlit as st
 import requests
 import time
+import joblib
+import numpy as np
+import pandas as pd
+import os
+import pickle
+# Base directory (VERY IMPORTANT for Render)
+BASE_DIR = os.path.dirname(__file__)
 
+# File paths
+woe_path = os.path.join(BASE_DIR, "woe_bins.csv")
+model_path = os.path.join(BASE_DIR, "credit_logreg_model.pkl")
+factor_path = os.path.join(BASE_DIR, "score_factor.pkl")
+offset_path = os.path.join(BASE_DIR, "score_offset.pkl")
+features_path = os.path.join(BASE_DIR, "model_features.pkl")
+scorecard_path = os.path.join(BASE_DIR, "credit_scorecard.csv")
+
+# Load all artifacts
+woe_table = pd.read_csv(woe_path)
+
+model = joblib.load(model_path)
+Factor = joblib.load(factor_path)
+Offset = joblib.load(offset_path)
+features = joblib.load(features_path)
+
+scorecard = pd.read_csv(scorecard_path)
+
+# woe_table = pd.read_csv("woe_bins.csv")
+# model = joblib.load("credit_logreg_model.pkl")
+# Factor = joblib.load("score_factor.pkl")
+# Offset = joblib.load("score_offset.pkl")
+# features = joblib.load("model_features.pkl")
+
+# scorecard = pd.read_csv("credit_scorecard.csv")
+
+base_score = scorecard[scorecard["VAR_NAME"]=="Base_Score"]["Points"].values[0]
+
+scorecard = scorecard[scorecard["VAR_NAME"]!="Base_Score"]
+
+
+def get_points(var, value):
+
+    bins = scorecard[scorecard["VAR_NAME"]==var]
+
+    for _, row in bins.iterrows():
+
+        if row["MIN_VALUE"] <= value <= row["MAX_VALUE"]:
+            return row["Points"]
+
+    return 0
+
+# -----------------------------
+# WOE Transformation Function
+# -----------------------------
+def apply_woe(df):
+
+    result = pd.DataFrame()
+
+#   for var in woe_table["VAR_NAME"].unique():
+    for var in [f.replace("new_","") for f in features]:
+
+        temp = woe_table[woe_table["VAR_NAME"] == var]
+        var_type = temp["VAR_TYPE"].iloc[0]
+
+        # ------------------------
+        # NUMERIC VARIABLES
+        # ------------------------
+        if var_type == "Numeric":
+
+            # ensure numeric type
+            temp.loc[:, "MIN_VALUE"] = pd.to_numeric(temp["MIN_VALUE"])
+            temp.loc[:, "MAX_VALUE"] = pd.to_numeric(temp["MAX_VALUE"])
+            if var not in df.columns:
+                df[var] = 0
+
+            def map_bin(x):
+                for _, row in temp.iterrows():
+                    if row["MIN_VALUE"] <= x <= row["MAX_VALUE"]:
+                        return row["WOE"]
+                return 0
+
+            result["new_" + var] = df[var].astype(float).apply(map_bin)
+
+        # ------------------------
+        # CATEGORICAL VARIABLES
+        # ------------------------
+        else:
+            if var not in df.columns:
+                df[var] = "Unknown"
+
+            mapping = dict(zip(temp["MIN_VALUE"], temp["WOE"]))
+
+            result["new_" + var] = df[var].map(mapping).fillna(0)
+
+    return result
 
 st.title("Credit Score Predictor")
 
@@ -97,41 +190,53 @@ if st.button("Predict"):
         "term": term
     }
     
-    time.sleep(1)
-    response = requests.post(
-        "https://credit-score-api-fy83.onrender.com/predict",
-        json=data
-    )
     
-#     st.write("Prediction:", response.json())
-    st.write("Status Code:", response.status_code)
     
-    if response.status_code == 200:
-    try:
-        result = response.json()
-        st.write(result)
+    
+    
+    # Convert request → dataframe
+    df = pd.DataFrame([data])
 
-        if "credit_score" in result:
-            st.success(f"Credit Score: {result['credit_score']}")
-            st.write(f"Risk Band: {result['risk_band']}")
-            st.write(f"PD: {round(result['pd'],3)}")
+    # Apply WOE transformation
+    df_woe = apply_woe(df)
+
+    # Ensure model feature order
+    df_woe = df_woe.reindex(columns=features, fill_value=0)
+
+    # Predict probability of default
+    pd_pred = model.predict_proba(df_woe)[:,1][0]
+    
+    score = base_score
+    for var in [f.replace("new_","") for f in features]:
+
+        
+        if var not in df.columns:
+            continue
+            
+        bin_table = scorecard[scorecard["VAR_NAME"] == var]
+
+        value = df[var].iloc[0]
+
+        if bin_table["VAR_TYPE"].iloc[0] == "Numeric":
+
+            row = bin_table[
+                (pd.to_numeric(bin_table["MIN_VALUE"]) <= value) &
+                (value <= pd.to_numeric(bin_table["MAX_VALUE"]))
+            ]
+
         else:
-            st.error("API response format incorrect")
 
-    except:
-        st.error("Response is not valid JSON")
-        st.write(response.text)
+            row = bin_table[bin_table["MIN_VALUE"] == value]
 
-    
-#     st.write("Raw Response:", response.text)
-    
-#     result = response.json()
+        if len(row) > 0:
+            score += row["Points"].values[0]
 
-#     st.write(result)
 
-#     if "credit_score" in result:
-#         st.success(f"Credit Score: {result['credit_score']}")
-#         st.write(f"Risk Band: {result['risk_band']}")
-#         st.write(f"PD: {round(result['pd'],3)}")
-#     else:
-#         st.error("API response format incorrect")
+    risk_band = "Low Risk"
+    if score < 550:
+        risk_band = "High Risk"
+    elif score < 650:
+        risk_band = "Medium Risk"
+    st.success(f"Credit Score: {int(score)}")
+    st.write(f"Risk Band: {risk_band}")
+    st.write(f"PD: {round(float(pd_pred),3)}")
