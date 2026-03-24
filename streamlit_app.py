@@ -5,6 +5,12 @@ import numpy as np
 import pandas as pd
 import os
 import pickle
+
+st.set_page_config(layout="centered")
+
+if "run_prediction" not in st.session_state:
+    st.session_state.run_prediction = False
+
 # Base directory (VERY IMPORTANT for Render)
 BASE_DIR = os.path.dirname(__file__)
 
@@ -16,15 +22,34 @@ offset_path = os.path.join(BASE_DIR, "score_offset.pkl")
 features_path = os.path.join(BASE_DIR, "model_features.pkl")
 scorecard_path = os.path.join(BASE_DIR, "credit_scorecard.csv")
 
+
+@st.cache_resource
+def load_model():
+    model = joblib.load(model_path)
+    Factor = joblib.load(factor_path)
+    Offset = joblib.load(offset_path)
+    features = joblib.load(features_path)
+    return model, Factor, Offset, features
+
+@st.cache_data
+def load_data():
+    woe_table = pd.read_csv(woe_path)
+    scorecard = pd.read_csv(scorecard_path)
+    return woe_table, scorecard
+
+model, Factor, Offset, features = load_model()
+woe_table, scorecard = load_data()
+
+
 # Load all artifacts
-woe_table = pd.read_csv(woe_path)
+# woe_table = pd.read_csv(woe_path)
 
-model = joblib.load(model_path)
-Factor = joblib.load(factor_path)
-Offset = joblib.load(offset_path)
-features = joblib.load(features_path)
+# model = joblib.load(model_path)
+# Factor = joblib.load(factor_path)
+# Offset = joblib.load(offset_path)
+# features = joblib.load(features_path)
 
-scorecard = pd.read_csv(scorecard_path)
+# scorecard = pd.read_csv(scorecard_path)
 
 # woe_table = pd.read_csv("woe_bins.csv")
 # model = joblib.load("credit_logreg_model.pkl")
@@ -170,6 +195,9 @@ term = st.selectbox(
 
 
 if st.button("Predict"):
+    st.session_state.run_prediction = True
+
+if st.session_state.run_prediction:
     data = {
         "loan_amnt": loan_amnt,
         "dti": dti,
